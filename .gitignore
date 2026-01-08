@@ -1,0 +1,87 @@
+# Visual Studio / MSBuild (C++ MU Client)
+
+# VS user-specific
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build folders (common)
+NewDebug/
+Debug/
+Release/
+x64/
+x86/
+Win32/
+bin/
+out/
+build/
+Build/
+Release_EX401/
+Release_EX603/
+Release_EX803/
+Release_EX505/
+Release_EX401CS/
+Release_EX603CS/
+Release_EX803CS/
+Debug_EX401/
+Debug_EX603/
+Debug_EX803/
+Debug_EX505/
+Debug_EX401CS/
+Debug_EX603CS/
+Debug_EX803CS/
+
+# Per-project build output (common patterns)
+**/Debug/
+**/Release/
+**/x64/
+**/x86/
+**/Win32/
+**/Bin/
+**/bin/
+**/obj/
+**/Obj/
+**/ipch/
+
+# Visual C++ cache / database
+*.VC.db
+*.VC.VC.opendb
+*.sdf
+*.opensdf
+*.db
+
+# MSBuild / compiler intermediates
+*.obj
+*.o
+*.lo
+*.slo
+*.pdb
+*.ipdb
+*.iobj
+*.ilk
+*.pch
+*.idb
+*.tlog
+*.lastbuildstate
+*.log
+*.cache
+*.tmp
+
+# Precompiled header + generated
+*.res
+*.aps
+*.rc.i
+*.dll
+*.exe
+*.lib
+*.exp
+
+# Crash dumps
+*.dmp
+
+# Optional: encrypted/packed object artifacts seen in this repo
+*.obj.enc
+
+
