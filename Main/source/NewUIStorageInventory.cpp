@@ -14,6 +14,14 @@
 
 using namespace SEASON3B;
 
+namespace
+{
+	// Mantém estado da troca de baú fora do header para não quebrar Edit & Continue (/ZI).
+	static bool  s_bChangingWarehouse = false;
+	static int   s_nTargetWarehouse = 0;
+	static DWORD s_dwChangeWarehouseTick = 0;
+}
+
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
@@ -111,6 +119,20 @@ void CNewUIStorageInventory::SetPos(int x, int y)
 
 bool CNewUIStorageInventory::UpdateMouseEvent()
 {
+	// Durante a troca de baú, bloqueia interação com itens (evita mover pro baú errado
+	// enquanto o servidor fecha/abre o warehouse).
+	if (s_bChangingWarehouse)
+	{
+		if (ProcessBtns())
+			return false;
+
+		if (CheckMouseIn(m_Pos.x, m_Pos.y, STORAGE_WIDTH, STORAGE_HEIGHT))
+		{
+			return false;
+		}
+		return true;
+	}
+
 	if (m_pNewInventoryCtrl && false == m_pNewInventoryCtrl->UpdateMouseEvent())
 		return false;
 
@@ -155,10 +177,60 @@ bool CNewUIStorageInventory::UpdateKeyEvent()
 
 bool CNewUIStorageInventory::Update()
 {
+	// Considera a troca concluída quando o servidor confirmar o CurrentWarehouse via 0x81 (ReceiveStorageGold).
+	if (s_bChangingWarehouse)
+	{
+		if (CharacterMachine->CurrentWarehouse == s_nTargetWarehouse)
+		{
+			s_bChangingWarehouse = false;
+			s_nTargetWarehouse = 0;
+			s_dwChangeWarehouseTick = 0;
+		}
+		else if (s_dwChangeWarehouseTick != 0 && (GetTickCount() - s_dwChangeWarehouseTick) > 5000)
+		{
+			// Fail-safe: não deixa o UI travado se o servidor não responder.
+			s_bChangingWarehouse = false;
+			s_nTargetWarehouse = 0;
+			s_dwChangeWarehouseTick = 0;
+		}
+	}
+
 	if(m_pNewInventoryCtrl && false == m_pNewInventoryCtrl->Update())
 		return false;
 
 	return true;
+}
+
+void SEASON3B::CNewUIStorageInventory::RequestChangeWarehouse(int targetWarehouse)
+{
+	if (s_bChangingWarehouse)
+	{
+		return;
+	}
+
+	if (targetWarehouse < 1 || targetWarehouse >(int)CharacterMachine->WarehouseCount)
+	{
+		return;
+	}
+
+	if (targetWarehouse == (int)CharacterMachine->CurrentWarehouse)
+	{
+		return;
+	}
+
+	s_bChangingWarehouse = true;
+	s_nTargetWarehouse = targetWarehouse;
+	s_dwChangeWarehouseTick = GetTickCount();
+
+	PlayBuffer(SOUND_CLICK01);
+
+	SEASON3B::CNewUIInventoryCtrl::DeletePickedItem();
+	DeleteAllItems();
+
+	// IMPORTANTE (GameServer): CGWarehouseChangeRecv só aceita se Interface.use == 0,
+	// então precisamos fechar o warehouse antes de pedir a troca.
+	SendRequestStorageExit();
+	SendRequestChangeWare(targetWarehouse);
 }
 
 bool CNewUIStorageInventory::Render()
@@ -313,7 +385,20 @@ bool CNewUIStorageInventory::ProcessClosing()
 
 	SEASON3B::CNewUIInventoryCtrl::BackupPickedItem();
 	DeleteAllItems();
-	SendRequestStorageExit();
+
+	// IMPORTANTE:
+	// Durante a troca de baú (setas), o servidor vai reenviar um "NPC_TALK result=2"
+	// (veja `GameServer/Warehouse.cpp::DGWarehouseItemRecv`) e o client executa `HideAll()`,
+	// o que chama `ProcessClosing()` novamente. Se enviarmos `StorageExit` nesse momento,
+	// acabamos fechando o warehouse recém-aberto no servidor e o move de itens (0x24)
+	// passa a falhar (o GameServer exige Interface=WWAREHOUSE, state=1, LoadWarehouse=1).
+	//
+	// Como nós já enviamos `SendRequestStorageExit()` ao iniciar a troca,
+	// aqui evitamos enviar o exit duplicado.
+	if (!s_bChangingWarehouse)
+	{
+		SendRequestStorageExit();
+	}
 	return true;
 }
 
@@ -483,7 +568,7 @@ void CNewUIStorageInventory::SendRequestItemToStorage(ITEM* pItemObj, int nInven
 	}
 }
 
-bool CNewUIStorageInventory::ProcessBtns()
+bool SEASON3B::CNewUIStorageInventory::ProcessBtns()
 {
 	if (m_abtn[BTN_INSERT_ZEN].UpdateMouseEvent())
 	{
@@ -508,25 +593,19 @@ bool CNewUIStorageInventory::ProcessBtns()
 		SendRequestVaultCost();
 		//SEASON3B::CNewUICommonMessageBox* pMsgBox;
 		//SEASON3B::CreateMessageBox(MSGBOX_LAYOUT_CLASS(SEASON3B::CBuyVaultMsgBoxLayout), &pMsgBox);
-		//pMsgBox->AddMsg("Confirma compra de 1 ba� adicional?", RGBA(255, 255, 255, 255), SEASON3B::MSGBOX_FONT_NORMAL);
+		//pMsgBox->AddMsg("Confirma compra de 1 ba� adicional?", RGBA(255, 255, 255, 255), SEASON3B::MSGBOX_FONT_NORMAL);
 		return true;
 	}
 	else if (m_abtn[BTN_LEFT].UpdateMouseEvent())
 	{
-		if (CharacterMachine->CurrentWarehouse > 1) {
-			g_pNewUISystem->Hide(SEASON3B::INTERFACE_STORAGE);
-			PlayBuffer(SOUND_CLICK01);
-			SendRequestChangeWare(CharacterMachine->CurrentWarehouse - 1);
-		}
+		if (CharacterMachine->CurrentWarehouse > 1)
+			RequestChangeWarehouse((int)CharacterMachine->CurrentWarehouse - 1);
 		return true;
 	}
 	else if (m_abtn[BTN_RIGHT].UpdateMouseEvent())
 	{
-		if (CharacterMachine->CurrentWarehouse < CharacterMachine->WarehouseCount) {
-			g_pNewUISystem->Hide(SEASON3B::INTERFACE_STORAGE);
-			PlayBuffer(SOUND_CLICK01);
-			SendRequestChangeWare(CharacterMachine->CurrentWarehouse + 1);
-		}
+		if (CharacterMachine->CurrentWarehouse < CharacterMachine->WarehouseCount)
+			RequestChangeWarehouse((int)CharacterMachine->CurrentWarehouse + 1);
 		return true;
 	}
 	else if (m_abtn[BTN_LOCK].UpdateMouseEvent())
@@ -646,7 +725,7 @@ void CNewUIStorageInventory::ProcessToReceiveStorageStatus(BYTE byStatus)
 					pItemObj = g_pPickedItem->GetItem();
 				}
 
-				SendRequestEquipmentItem(
+				SendRequestEquipmentItem(// teste
 					REQUEST_EQUIPMENT_STORAGE, nStorageIndex,
 					pItemObj, REQUEST_EQUIPMENT_INVENTORY, GetBackupInvenIndex());
 

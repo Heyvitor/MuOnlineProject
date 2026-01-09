@@ -117,7 +117,7 @@ namespace SEASON3B
 		
 	private:
 		void LoadImages();
-		void UnloadImages();
+		void UnloadImages(); // ss
 
 		void RenderBackImage();
 		void RenderText();
@@ -135,6 +135,7 @@ namespace SEASON3B
 		int GetBackupInvenIndex(){ return m_nBackupInvenIndex; }
 
 		void ProcessInventoryCtrl();
+		void RequestChangeWarehouse(int targetWarehouse);
 		bool ProcessBtns();
 		void ProcessStorageItemAutoMove();
 
